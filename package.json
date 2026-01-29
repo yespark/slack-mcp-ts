@@ -1,0 +1,35 @@
+{
+  "name": "@yespark/slack-mcp-server",
+  "version": "1.0.0",
+  "description": "Security-hardened MCP server for Slack (DMs blocked)",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "slack-mcp-server": "build/index.js"
+  },
+  "files": ["build"],
+  "scripts": {
+    "build": "tsc && chmod +x build/index.js",
+    "prepare": "npm run build",
+    "watch": "tsc --watch",
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@slack/web-api": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yespark/slack-mcp-ts.git"
+  },
+  "keywords": ["mcp", "slack", "model-context-protocol"],
+  "author": "Yespark",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}
