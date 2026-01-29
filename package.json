@@ -1,5 +1,5 @@
 {
-  "name": "@yespark/slack-mcp-server",
+  "name": "yespark-slack-mcp-server",
   "version": "1.0.0",
   "description": "Security-hardened MCP server for Slack (DMs blocked)",
   "type": "module",
@@ -28,8 +28,5 @@
   },
   "keywords": ["mcp", "slack", "model-context-protocol"],
   "author": "Yespark",
-  "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  }
+  "license": "MIT"
 }

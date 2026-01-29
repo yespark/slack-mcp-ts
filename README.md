@@ -1,4 +1,4 @@
-# @yespark/slack-mcp-server
+# yespark-slack-mcp-server
 
 Serveur MCP pour Slack, sécurisé pour une utilisation avec des assistants IA.
 
@@ -7,7 +7,7 @@ Serveur MCP pour Slack, sécurisé pour une utilisation avec des assistants IA.
 ## Installation
 
 ```bash
-npm install @yespark/slack-mcp-server
+npm install yespark-slack-mcp-server
 ```
 
 ## Configuration MCP
@@ -17,7 +17,7 @@ npm install @yespark/slack-mcp-server
   "mcpServers": {
     "slack": {
       "command": "npx",
-      "args": ["@yespark/slack-mcp-server"],
+      "args": ["yespark-slack-mcp-server"],
       "env": {
         "SLACK_MCP_XOXC_TOKEN": "xoxc-...",
         "SLACK_MCP_XOXD_TOKEN": "xoxd-..."

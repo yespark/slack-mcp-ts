@@ -75,7 +75,7 @@ class SlackMcpServer {
 
   constructor() {
     this.server = new Server(
-      { name: "@yespark/slack-mcp-server", version: "1.0.0" },
+      { name: "yespark-slack-mcp-server", version: "1.0.0" },
       { capabilities: { tools: {}, resources: {} } }
     );
 
