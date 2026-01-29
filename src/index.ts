@@ -3,6 +3,10 @@
 /**
  * Slack MCP Server (TypeScript)
  * Security-hardened fork: DMs and group DMs are blocked
+ *
+ * Supports two authentication methods:
+ * 1. Browser tokens: SLACK_MCP_XOXC_TOKEN + SLACK_MCP_XOXD_TOKEN
+ * 2. User OAuth: SLACK_TOKEN (xoxp-*)
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -13,7 +17,7 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { WebClient } from "@slack/web-api";
+import axios, { AxiosInstance } from "axios";
 
 // Types
 interface Channel {
@@ -33,35 +37,36 @@ interface User {
   real_name: string;
 }
 
-interface Message {
-  ts: string;
-  user: string;
-  text: string;
-  thread_ts?: string;
-  reactions?: Array<{ name: string; count: number }>;
-}
+// Environment - Support both browser tokens and OAuth
+const XOXC_TOKEN = process.env.SLACK_MCP_XOXC_TOKEN;
+const XOXD_TOKEN = process.env.SLACK_MCP_XOXD_TOKEN;
+const XOXP_TOKEN = process.env.SLACK_TOKEN || process.env.SLACK_MCP_XOXP_TOKEN;
 
-// Environment
-const SLACK_TOKEN = process.env.SLACK_TOKEN || process.env.SLACK_MCP_XOXP_TOKEN;
 const ADD_MESSAGE_ENABLED = process.env.SLACK_MCP_ADD_MESSAGE_TOOL === "true" ||
                             process.env.SLACK_MCP_ADD_MESSAGE_TOOL === "1";
 const ALLOWED_CHANNELS = process.env.SLACK_MCP_ADD_MESSAGE_TOOL?.startsWith("C")
   ? process.env.SLACK_MCP_ADD_MESSAGE_TOOL.split(",")
   : null;
 
-if (!SLACK_TOKEN) {
-  console.error("SLACK_TOKEN or SLACK_MCP_XOXP_TOKEN environment variable is required");
-  process.exit(1);
-}
+// Determine auth method
+let AUTH_TOKEN: string;
+let AUTH_COOKIE: string | undefined;
 
-if (!SLACK_TOKEN.startsWith("xoxp-")) {
-  console.error("Only user OAuth tokens (xoxp-*) are supported");
+if (XOXC_TOKEN && XOXD_TOKEN) {
+  console.error("[Slack MCP] Using browser tokens (xoxc/xoxd)");
+  AUTH_TOKEN = XOXC_TOKEN;
+  AUTH_COOKIE = `d=${XOXD_TOKEN}`;
+} else if (XOXP_TOKEN) {
+  console.error("[Slack MCP] Using OAuth token (xoxp)");
+  AUTH_TOKEN = XOXP_TOKEN;
+} else {
+  console.error("Error: Provide either SLACK_MCP_XOXC_TOKEN + SLACK_MCP_XOXD_TOKEN, or SLACK_TOKEN (xoxp-*)");
   process.exit(1);
 }
 
 class SlackMcpServer {
   private server: Server;
-  private slack: WebClient;
+  private http: AxiosInstance;
   private channelsById: Map<string, Channel> = new Map();
   private channelsByName: Map<string, Channel> = new Map();
   private usersById: Map<string, User> = new Map();
@@ -74,13 +79,31 @@ class SlackMcpServer {
       { capabilities: { tools: {}, resources: {} } }
     );
 
-    this.slack = new WebClient(SLACK_TOKEN);
+    // Setup HTTP client for Slack API
+    this.http = axios.create({
+      baseURL: "https://slack.com/api",
+      headers: {
+        "Authorization": `Bearer ${AUTH_TOKEN}`,
+        "Content-Type": "application/json; charset=utf-8",
+        ...(AUTH_COOKIE ? { "Cookie": AUTH_COOKIE } : {}),
+      },
+    });
+
     this.setupToolHandlers();
     this.setupResourceHandlers();
 
     this.server.onerror = (error) => {
       console.error("[MCP Error]", error);
     };
+  }
+
+  // Slack API helper
+  private async slackApi(method: string, params: Record<string, any> = {}): Promise<any> {
+    const response = await this.http.post(method, params);
+    if (!response.data.ok) {
+      throw new Error(`Slack API error: ${response.data.error}`);
+    }
+    return response.data;
   }
 
   // ============ SECURITY ============
@@ -133,13 +156,13 @@ class SlackMcpServer {
     console.error("[Slack MCP] Loading channels and users cache...");
 
     // Get workspace info
-    const authTest = await this.slack.auth.test();
+    const authTest = await this.slackApi("auth.test");
     this.workspace = authTest.team || "workspace";
 
     // Load channels (public + private, NOT DMs)
     let cursor: string | undefined;
     do {
-      const result = await this.slack.conversations.list({
+      const result = await this.slackApi("conversations.list", {
         types: "public_channel,private_channel",
         limit: 1000,
         cursor,
@@ -147,13 +170,13 @@ class SlackMcpServer {
 
       for (const ch of result.channels || []) {
         const channel: Channel = {
-          id: ch.id!,
+          id: ch.id,
           name: `#${ch.name}`,
           is_private: ch.is_private || false,
           is_im: ch.is_im || false,
           is_mpim: ch.is_mpim || false,
-          topic: (ch as any).topic?.value,
-          purpose: (ch as any).purpose?.value,
+          topic: ch.topic?.value,
+          purpose: ch.purpose?.value,
           num_members: ch.num_members,
         };
         this.channelsById.set(channel.id, channel);
@@ -166,14 +189,14 @@ class SlackMcpServer {
     // Load users
     cursor = undefined;
     do {
-      const result = await this.slack.users.list({ limit: 1000, cursor });
+      const result = await this.slackApi("users.list", { limit: 1000, cursor });
 
       for (const u of result.members || []) {
         if (u.deleted || u.is_bot) continue;
         const user: User = {
-          id: u.id!,
-          name: u.name!,
-          real_name: u.real_name || u.name!,
+          id: u.id,
+          name: u.name,
+          real_name: u.real_name || u.name,
         };
         this.usersById.set(user.id, user);
         this.usersByName.set(`@${user.name}`, user);
@@ -332,18 +355,18 @@ class SlackMcpServer {
     const channelId = this.resolveChannelId(args.channel_id);
     const limit = Math.min(args?.limit || 50, 100);
 
-    const result = await this.slack.conversations.history({
+    const result = await this.slackApi("conversations.history", {
       channel: channelId,
       limit,
       cursor: args?.cursor,
     });
 
-    const messages = (result.messages || []).map((m) => ({
+    const messages = (result.messages || []).map((m: any) => ({
       ts: m.ts,
       user: this.getUserName(m.user || ""),
       text: m.text,
       thread_ts: m.thread_ts,
-      reactions: m.reactions?.map((r) => `${r.name}:${r.count}`).join("|"),
+      reactions: m.reactions?.map((r: any) => `${r.name}:${r.count}`).join("|"),
       cursor: "",
     }));
 
@@ -353,7 +376,7 @@ class SlackMcpServer {
 
     // Format as CSV
     const csv = ["ts,user,text,thread_ts,reactions,cursor"]
-      .concat(messages.map(m =>
+      .concat(messages.map((m: any) =>
         `${m.ts},"${m.user}","${(m.text || "").replace(/"/g, '""')}",${m.thread_ts || ""},"${m.reactions || ""}",${m.cursor}`
       ))
       .join("\n");
@@ -365,14 +388,14 @@ class SlackMcpServer {
     const channelId = this.resolveChannelId(args.channel_id);
     const limit = Math.min(args?.limit || 50, 100);
 
-    const result = await this.slack.conversations.replies({
+    const result = await this.slackApi("conversations.replies", {
       channel: channelId,
       ts: args.thread_ts,
       limit,
       cursor: args?.cursor,
     });
 
-    const messages = (result.messages || []).map((m) => ({
+    const messages = (result.messages || []).map((m: any) => ({
       ts: m.ts,
       user: this.getUserName(m.user || ""),
       text: m.text,
@@ -384,7 +407,7 @@ class SlackMcpServer {
     }
 
     const csv = ["ts,user,text,cursor"]
-      .concat(messages.map(m =>
+      .concat(messages.map((m: any) =>
         `${m.ts},"${m.user}","${(m.text || "").replace(/"/g, '""')}",${m.cursor}`
       ))
       .join("\n");
@@ -412,13 +435,13 @@ class SlackMcpServer {
       query += ` from:${userName}`;
     }
 
-    const result = await this.slack.search.messages({
+    const result = await this.slackApi("search.messages", {
       query,
       count: Math.min(args?.limit || 20, 100),
     });
 
     const matches = result.messages?.matches || [];
-    const messages = matches.map((m) => ({
+    const messages = matches.map((m: any) => ({
       ts: m.ts,
       channel: `#${m.channel?.name || "unknown"}`,
       user: m.user || m.username || "",
@@ -426,7 +449,7 @@ class SlackMcpServer {
     }));
 
     const csv = ["ts,channel,user,text"]
-      .concat(messages.map(m =>
+      .concat(messages.map((m: any) =>
         `${m.ts},"${m.channel}","${m.user}","${(m.text || "").replace(/"/g, '""')}"`
       ))
       .join("\n");
@@ -449,7 +472,7 @@ class SlackMcpServer {
       throw new Error(`Posting to channel ${channelId} is not allowed.`);
     }
 
-    const result = await this.slack.chat.postMessage({
+    const result = await this.slackApi("chat.postMessage", {
       channel: channelId,
       text: args.text,
       thread_ts: args.thread_ts,

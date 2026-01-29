@@ -19,19 +19,52 @@ npm install @yespark/slack-mcp-server
       "command": "npx",
       "args": ["@yespark/slack-mcp-server"],
       "env": {
-        "SLACK_TOKEN": "xoxp-..."
+        "SLACK_MCP_XOXC_TOKEN": "xoxc-...",
+        "SLACK_MCP_XOXD_TOKEN": "xoxd-..."
       }
     }
   }
 }
 ```
 
-### Variables d'environnement
+## Authentification
 
-| Variable | Requis | Description |
-|----------|--------|-------------|
-| `SLACK_TOKEN` | Oui | Token OAuth utilisateur (`xoxp-...`) |
-| `SLACK_MCP_ADD_MESSAGE_TOOL` | Non | `true` pour activer l'envoi de messages, ou liste de channel IDs |
+### Option 1 : Tokens du navigateur (recommandé)
+
+1. Ouvre Slack **dans ton navigateur** (pas l'app desktop)
+2. Ouvre la console développeur (F12)
+
+**Récupérer `SLACK_MCP_XOXC_TOKEN` :**
+```javascript
+JSON.parse(localStorage.localConfig_v2).teams[document.location.pathname.match(/^\/client\/([A-Z0-9]+)/)[1]].token
+```
+
+**Récupérer `SLACK_MCP_XOXD_TOKEN` :**
+- Onglet **Application** → **Cookies**
+- Copie la valeur du cookie nommé `d`
+
+### Option 2 : OAuth Token (xoxp)
+
+1. Crée une app sur https://api.slack.com/apps
+2. Ajoute les scopes : `channels:read`, `channels:history`, `groups:read`, `groups:history`, `users:read`, `search:read`, `chat:write`
+3. Installe l'app et copie le **User OAuth Token** (`xoxp-...`)
+
+```json
+{
+  "env": {
+    "SLACK_TOKEN": "xoxp-..."
+  }
+}
+```
+
+## Variables d'environnement
+
+| Variable | Description |
+|----------|-------------|
+| `SLACK_MCP_XOXC_TOKEN` | Token browser (xoxc-...) |
+| `SLACK_MCP_XOXD_TOKEN` | Cookie browser (xoxd-...) |
+| `SLACK_TOKEN` | Alternative : OAuth token (xoxp-...) |
+| `SLACK_MCP_ADD_MESSAGE_TOOL` | `true` ou liste de channel IDs pour activer l'envoi |
 
 ## Outils disponibles
 
@@ -43,13 +76,6 @@ npm install @yespark/slack-mcp-server
 | `conversations_search` | Recherche de messages |
 | `conversations_add_message` | Poster un message (désactivé par défaut) |
 
-## Ressources
-
-| URI | Description |
-|-----|-------------|
-| `slack://{workspace}/channels` | Répertoire des channels (CSV) |
-| `slack://{workspace}/users` | Répertoire des utilisateurs (CSV) |
-
 ## Restrictions de sécurité
 
 | Fonctionnalité | Statut |
@@ -58,14 +84,6 @@ npm install @yespark/slack-mcp-server
 | Group DMs (MPIM) | ❌ Bloqué |
 | Channels publics | ✅ Autorisé |
 | Channels privés | ✅ Autorisé |
-
-## Développement
-
-```bash
-npm install
-npm run build
-npm run inspector  # Debug avec MCP Inspector
-```
 
 ## Licence
 
